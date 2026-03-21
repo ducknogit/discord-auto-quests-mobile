@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "DAQ",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -21,10 +21,19 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.ducknovis.discautoquests"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "82941767-55ed-4472-936a-0464efe2b9b2"
+      }
+    },
+    "cli": {
+      "appVersionSource": "remote"
     }
   }
 }
