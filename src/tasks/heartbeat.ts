@@ -8,18 +8,37 @@ export async function runHeartbeatTask(
   quest: Quest,
   emit: (ev: ProgressEvent) => void,
 ): Promise<void> {
-  const target = quest.target || 60 * 10;
+  const target = quest.target || 600;
   let progress = quest.progress ?? 0;
   const appId = quest.applicationId || quest.id;
+  const platform: 'android' | 'desktop' =
+    quest.taskType === 'PLAY_ON_DESKTOP' || quest.taskType === 'STREAM_ON_DESKTOP' || quest.taskType === 'PLAY_ACTIVITY'
+      ? 'desktop'
+      : 'android';
 
-  while (progress < target) {
+  // Allow extra beats past nominal target to avoid stopping at ~97%.
+  const maxBeats = Math.ceil(target / 60) + 5;
+
+  for (let beat = 0; beat < maxBeats; beat++) {
     const terminal = progress + 60 >= target;
-    const res = await client.postHeartbeat(quest.id, appId, terminal);
+    const res = await client.postHeartbeat(quest.id, appId, terminal, platform);
+
+    if (res.completed) {
+      quest.completedAt = new Date().toISOString();
+      emit({ type: 'progress', questId: quest.id, progress: target, remaining: 0 });
+      return;
+    }
+
     progress = Math.min(target, progress + 60);
-    emit({ type: 'progress', questId: quest.id, progress, remaining: Math.max(0, target - progress) });
-    if (res.completed || progress >= target) break;
+    emit({
+      type: 'progress',
+      questId: quest.id,
+      progress,
+      remaining: Math.max(0, target - progress),
+    });
+
     await sleep(60_000);
   }
 
-  quest.completedAt = new Date().toISOString();
+  throw new Error('Heartbeat task did not complete');
 }

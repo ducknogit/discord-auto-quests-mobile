@@ -48,11 +48,8 @@ export class QuestStore extends EventEmitter<EventMap> {
   }
 
   async claimAll() {
-    for (const q of this.claimable()) {
-      await this.client.claimReward(q.id);
-      q.claimedAt = new Date().toISOString();
-      this.emit('status', { type: 'status', questId: q.id, status: 'claimed' });
-    }
+    // Temporarily skip claiming to avoid platform/location API errors; only farm quests.
+    return;
   }
 
   async runPending() {

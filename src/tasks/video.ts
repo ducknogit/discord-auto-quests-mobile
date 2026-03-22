@@ -12,17 +12,36 @@ export async function runVideoTask(
   let progress = quest.progress ?? 0;
   const enrolled = quest.enrolledAt ? new Date(quest.enrolledAt).getTime() : Date.now();
 
-  while (progress < target) {
+  const maxTicks = target + 30; // guard against infinite loop
+
+  for (let tick = 0; tick < maxTicks; tick++) {
     const maxAllowed = Math.floor((Date.now() - enrolled) / 1000) + 10;
     const diff = maxAllowed - progress;
     const step = Math.min(diff, 7);
+
     if (step > 0) {
       progress = Math.min(target, progress + step);
-      await client.postVideoProgress(quest.id, progress + Math.random());
+      const res = await client.postVideoProgress(quest.id, progress + Math.random());
+      if (res.completed) {
+        quest.completedAt = new Date().toISOString();
+        emit({ type: 'progress', questId: quest.id, progress: target, remaining: 0 });
+        return;
+      }
       emit({ type: 'progress', questId: quest.id, progress, remaining: Math.max(0, target - progress) });
     }
-    if (progress >= target) break;
+
+    if (progress >= target) {
+      // keep pinging a few more times to let backend finalize
+      const res = await client.postVideoProgress(quest.id, target + Math.random());
+      if (res.completed) {
+        quest.completedAt = new Date().toISOString();
+        emit({ type: 'progress', questId: quest.id, progress: target, remaining: 0 });
+        return;
+      }
+    }
+
     await sleep(1000);
   }
-  quest.completedAt = new Date().toISOString();
+
+  throw new Error('Video task did not complete');
 }

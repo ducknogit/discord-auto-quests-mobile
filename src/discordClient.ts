@@ -13,6 +13,11 @@ type RequestOpts = {
   retries?: number;
 };
 
+// Discord quests now expect `platform` as int (coerced enum). Map to numeric codes:
+// 1 = desktop, 2 = android (assumed from API validation).
+const platformPayload = (platform: 'android' | 'desktop' = 'desktop') =>
+  platform === 'desktop' ? 1 : 2;
+
 const CLIENT_PROPS = {
   os: 'Windows',
   browser: 'Discord Client',
@@ -87,7 +92,7 @@ export class DiscordClient extends EventEmitter<{
 
     if (!res.ok) {
       const text = await res.text();
-      const err = new Error(`HTTP ${res.status}: ${text}`);
+      const err = new Error(`HTTP ${res.status} ${path}: ${text}`);
       this.emit('error', err);
       throw err;
     }
@@ -135,14 +140,38 @@ export class DiscordClient extends EventEmitter<{
     return quests;
   }
 
-  async claimReward(questId: string): Promise<void> {
-    await this.request(`/quests/${questId}/claim-reward`, { method: 'POST', body: {} });
+  async claimReward(questId: string, platform: 'android' | 'desktop' = 'desktop'): Promise<void> {
+    // Some quests only allow claim for a specific platform/location combination.
+    const attempts: Array<{ plat: 'android' | 'desktop'; loc: number }> = [
+      { plat: platform, loc: platform === 'desktop' ? 1 : 11 },
+      { plat: 'desktop', loc: 1 },
+      { plat: 'android', loc: 11 },
+      { plat: 'desktop', loc: 11 },
+      { plat: 'android', loc: 1 },
+    ];
+
+    let lastError: any;
+    for (const a of attempts) {
+      try {
+        await this.request(`/quests/${questId}/claim-reward`, {
+          method: 'POST',
+          body: { platform: platformPayload(a.plat), location: a.loc },
+        });
+        return;
+      } catch (err: any) {
+        lastError = err;
+        const msg = err?.message || '';
+        // If not a platform/location issue, abort early
+        if (!msg.includes('platform') && !msg.includes('260004')) throw err;
+      }
+    }
+    throw lastError;
   }
 
   async postVideoProgress(questId: string, timestamp: number): Promise<{ completed: boolean }> {
     const res = await this.request<any>(`/quests/${questId}/video-progress`, {
       method: 'POST',
-      body: { timestamp },
+      body: { timestamp, platform: platformPayload('android'), location: 11 },
     });
     return { completed: !!res?.completed_at };
   }
@@ -150,7 +179,7 @@ export class DiscordClient extends EventEmitter<{
   async enroll(questId: string) {
     const res = await this.request<any>(`/quests/${questId}/enroll`, {
       method: 'POST',
-      body: { location: 11, is_targeted: false, metadata_raw: null },
+      body: { location: 11, is_targeted: false, metadata_raw: null, platform: platformPayload('android') },
     });
     return res;
   }
@@ -159,10 +188,11 @@ export class DiscordClient extends EventEmitter<{
     questId: string,
     applicationId?: string,
     terminal = false,
+    platform: 'android' | 'desktop' = 'android',
   ): Promise<{ completed: boolean }> {
     const res = await this.request<any>(`/quests/${questId}/heartbeat`, {
       method: 'POST',
-      body: { application_id: applicationId, terminal },
+      body: { application_id: applicationId, terminal, platform: platformPayload(platform), location: 11 },
     });
     return { completed: !!res?.completed_at };
   }
