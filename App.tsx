@@ -278,6 +278,41 @@ export default function App() {
     }
   };
 
+  const handleClaim = async () => {
+    if (!activeSessionId) return;
+    const current = (sessionsRef.current || sessions).find((s) => s.id === activeSessionId);
+    if (!current || !current.token) {
+      appendLog('No token in current session to claim');
+      return;
+    }
+
+    appendLog(`Claim rewards for ${current.id.slice(0, 6)}...`);
+    const runner = new Runner({ token: current.token, maxParallel: 2 });
+    const handler = (ev: ProgressEvent) => {
+      if (ev.type === 'log') {
+        logRef.current = {
+          ...logRef.current,
+          [current.id]: [`${new Date().toLocaleTimeString()} [${ev.level}] ${ev.message}`, ...(logRef.current[current.id] || [])].slice(0, 200),
+        };
+        setLogsBySession({ ...logRef.current });
+      } else if (ev.type === 'balance') {
+        setOrbs(ev.orbs);
+        setSessions((prev) => prev.map((x) => (x.id === current.id ? { ...x, orbs: ev.orbs } : x)));
+      }
+    };
+    runner.on('log', handler);
+    runner.on('balance', handler as any);
+    try {
+      await runner.init();
+      await runner.claimAll();
+      appendLog(`Claim done for ${current.id.slice(0, 6)}.`);
+    } catch (err: any) {
+      appendLog(`Claim failed: ${err?.message || err}`);
+    } finally {
+      runner.removeAllListeners();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -370,6 +405,9 @@ export default function App() {
           <Card style={styles.flex1}>
             <Text style={styles.label}>Orbs</Text>
             <Text style={styles.orbText}>{orbs ?? '...'}</Text>
+            <Pressable style={[styles.blackButton, { marginTop: 10 }]} onPress={handleClaim}>
+              <Text style={styles.blackButtonText}>Claim rewards</Text>
+            </Pressable>
           </Card>
         </View>
 

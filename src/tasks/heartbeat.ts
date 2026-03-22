@@ -8,20 +8,17 @@ export async function runHeartbeatTask(
   quest: Quest,
   emit: (ev: ProgressEvent) => void,
 ): Promise<void> {
+  // Run heartbeats until Discord confirms completion; avoid premature "done" at ~97%.
   const target = quest.target || 600;
-  let progress = quest.progress ?? 0;
   const appId = quest.applicationId || quest.id;
-  const platform: 'android' | 'desktop' =
-    quest.taskType === 'PLAY_ON_DESKTOP' || quest.taskType === 'STREAM_ON_DESKTOP' || quest.taskType === 'PLAY_ACTIVITY'
-      ? 'desktop'
-      : 'android';
+  let progress = quest.progress ?? 0;
 
-  // Allow extra beats past nominal target to avoid stopping at ~97%.
+  // Allow a few extra terminal beats beyond the target.
   const maxBeats = Math.ceil(target / 60) + 5;
 
   for (let beat = 0; beat < maxBeats; beat++) {
     const terminal = progress + 60 >= target;
-    const res = await client.postHeartbeat(quest.id, appId, terminal, platform);
+    const res = await client.postHeartbeat(quest.id, appId, terminal);
 
     if (res.completed) {
       quest.completedAt = new Date().toISOString();
@@ -40,5 +37,6 @@ export async function runHeartbeatTask(
     await sleep(60_000);
   }
 
+  // If server never marks complete, surface failure so it can be retried.
   throw new Error('Heartbeat task did not complete');
 }

@@ -48,7 +48,7 @@ export class QuestStore extends EventEmitter<EventMap> {
   }
 
   async claimAll() {
-    // Temporarily skip claiming to avoid platform/location API errors; only farm quests.
+    // Auto-claim disabled (platform/location issues). Use manual claim button instead.
     return;
   }
 

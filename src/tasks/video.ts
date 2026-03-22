@@ -12,7 +12,8 @@ export async function runVideoTask(
   let progress = quest.progress ?? 0;
   const enrolled = quest.enrolledAt ? new Date(quest.enrolledAt).getTime() : Date.now();
 
-  const maxTicks = target + 30; // guard against infinite loop
+  // Keep pushing progress until the server returns completed; do not mark complete locally.
+  const maxTicks = target + 30; // generous cap to avoid infinite loop
 
   for (let tick = 0; tick < maxTicks; tick++) {
     const maxAllowed = Math.floor((Date.now() - enrolled) / 1000) + 10;
@@ -30,8 +31,8 @@ export async function runVideoTask(
       emit({ type: 'progress', questId: quest.id, progress, remaining: Math.max(0, target - progress) });
     }
 
+    // After reaching target, keep pinging a few times to let backend finalize.
     if (progress >= target) {
-      // keep pinging a few more times to let backend finalize
       const res = await client.postVideoProgress(quest.id, target + Math.random());
       if (res.completed) {
         quest.completedAt = new Date().toISOString();

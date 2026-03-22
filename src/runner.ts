@@ -43,6 +43,12 @@ export class Runner extends EventEmitter<EventMap> {
     if (balance !== null) this.emit('balance', { type: 'balance', orbs: balance });
   }
 
+  async claimAll() {
+    await this.store.claimAll();
+    const balance = await this.client.getBalance().catch(() => null);
+    if (balance !== null) this.emit('balance', { type: 'balance', orbs: balance });
+  }
+
   pending() {
     return this.store.pending();
   }

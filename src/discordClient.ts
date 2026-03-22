@@ -13,8 +13,8 @@ type RequestOpts = {
   retries?: number;
 };
 
-// Discord quests now expect `platform` as int (coerced enum). Map to numeric codes:
-// 1 = desktop, 2 = android (assumed from API validation).
+// Platform mapping used by current Discord quests API (int32 enum).
+// Observed: desktop quests reject android codes. We brute-force in claimReward.
 const platformPayload = (platform: 'android' | 'desktop' = 'desktop') =>
   platform === 'desktop' ? 1 : 2;
 
@@ -141,28 +141,23 @@ export class DiscordClient extends EventEmitter<{
   }
 
   async claimReward(questId: string, platform: 'android' | 'desktop' = 'desktop'): Promise<void> {
-    // Some quests only allow claim for a specific platform/location combination.
-    const attempts: Array<{ plat: 'android' | 'desktop'; loc: number }> = [
-      { plat: platform, loc: platform === 'desktop' ? 1 : 11 },
-      { plat: 'desktop', loc: 1 },
-      { plat: 'android', loc: 11 },
-      { plat: 'desktop', loc: 11 },
-      { plat: 'android', loc: 1 },
-    ];
-
+    // Brute-force platform/location combos until one succeeds.
+    const platforms: Array<'android' | 'desktop'> = platform === 'desktop' ? ['desktop', 'android'] : ['android', 'desktop'];
+    const locations = [11, 1];
     let lastError: any;
-    for (const a of attempts) {
-      try {
-        await this.request(`/quests/${questId}/claim-reward`, {
-          method: 'POST',
-          body: { platform: platformPayload(a.plat), location: a.loc },
-        });
-        return;
-      } catch (err: any) {
-        lastError = err;
-        const msg = err?.message || '';
-        // If not a platform/location issue, abort early
-        if (!msg.includes('platform') && !msg.includes('260004')) throw err;
+    for (const plat of platforms) {
+      for (const loc of locations) {
+        try {
+          await this.request(`/quests/${questId}/claim-reward`, {
+            method: 'POST',
+            body: { platform: platformPayload(plat), location: loc },
+          });
+          return;
+        } catch (err: any) {
+          lastError = err;
+          const msg = err?.message || '';
+          if (!msg.includes('platform') && !msg.includes('260004')) throw err;
+        }
       }
     }
     throw lastError;
