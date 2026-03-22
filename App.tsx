@@ -174,7 +174,20 @@ export default function App() {
     runner.on('log', handler);
     runner.on('progress', handler);
     runner.on('status', handler);
-    runner.on('balance', handler);
+    runner.on('balance', (ev) => {
+      logRef.current = {
+        ...logRef.current,
+        [s.id]: [
+          `${new Date().toLocaleTimeString()} Balance: ${ev.orbs}`,
+          ...(logRef.current[s.id] || []),
+        ].slice(0, 200),
+      };
+      setLogsBySession({ ...logRef.current });
+      setSessions((prev) =>
+        prev.map((x) => (x.id === s.id ? { ...x, orbs: ev.orbs } : x)),
+      );
+      setOrbs(ev.orbs);
+    });
 
     try {
       await runner.init();
@@ -470,6 +483,7 @@ const styles = StyleSheet.create({
     color: '#e5e7eb',
     fontSize: 12,
     marginBottom: 4,
+    lineHeight: 16,
   },
   muted: {
     color: '#ffffff',
