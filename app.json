@@ -27,13 +27,14 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "extra": {
-      "eas": {
-        "projectId": "82941767-55ed-4472-936a-0464efe2b9b2"
-      }
-    },
     "cli": {
       "appVersionSource": "remote"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "1ca49e9b-970a-4d86-ba64-b089a11d183e"
+      }
+    },
+    "owner": "ducknofree"
   }
 }

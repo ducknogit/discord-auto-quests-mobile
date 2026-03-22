@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  Button,
   FlatList,
   Linking,
   Modal,
@@ -63,6 +62,7 @@ export default function App() {
   const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
   const [orbs, setOrbs] = useState<number | null>(null);
   const [sessions, setSessions] = useState<SessionState[]>([]);
+  const [tokenLocked, setTokenLocked] = useState(false);
   const [showWarning, setShowWarning] = useState(true);
 
   const logRef = useRef<Record<string, string[]>>({});
@@ -70,9 +70,27 @@ export default function App() {
   const stopRef = useRef<boolean>(false);
 
   useEffect(() => {
+    sessionsRef.current = sessions;
+    if (!activeSessionId && sessions.length > 0) {
+      setActiveSessionId(sessions[0].id);
+    }
+  }, [sessions, activeSessionId]);
+
+  useEffect(() => {
     SecureStore.getItemAsync('discord_token').then((value) => {
       if (value) setToken(value);
     });
+  }, []);
+
+  // Auto create a blank session on first load
+  useEffect(() => {
+    if (sessionsRef.current.length === 0) {
+      const id = randomUUID();
+      const initial: SessionState = { id, token: '', status: 'idle', orbs: null };
+      sessionsRef.current = [initial];
+      setSessions([initial]);
+      setActiveSessionId(id);
+    }
   }, []);
 
   useEffect(() => {
@@ -108,10 +126,6 @@ export default function App() {
   };
 
   const addSession = () => {
-    if (!token.trim()) {
-      Alert.alert('Token trống', 'Vui lòng nhập token');
-      return;
-    }
     const id = randomUUID();
     setSessions((prev) => {
       const next = [...prev, { id, token: token.trim(), status: 'idle', orbs: null }];
@@ -119,7 +133,8 @@ export default function App() {
       if (!activeSessionId) setActiveSessionId(id);
       return next;
     });
-    setToken('');
+    appendLog(`Added session ${token.trim() ? token.slice(0, 6) : 'blank'}`);
+    // keep token so user can reuse
   };
 
   const runSession = async (s: SessionState) => {
@@ -185,7 +200,7 @@ export default function App() {
       const stopped = err?.message === 'Stopped';
       logRef.current = {
         ...logRef.current,
-        [s.id]: [`${new Date().toLocaleTimeString()} Session ${s.id.slice(0, 6)} ${stopped ? 'stopped' : 'error'}: ${err?.message || err}` , ...(logRef.current[s.id] || [])].slice(0, 200),
+        [s.id]: [`${new Date().toLocaleTimeString()} Session ${s.id.slice(0, 6)} ${stopped ? 'stopped' : 'error'}: ${err?.message || err}`, ...(logRef.current[s.id] || [])].slice(0, 200),
       };
       setLogsBySession({ ...logRef.current });
       setSessions((prev) =>
@@ -194,16 +209,46 @@ export default function App() {
     } finally {
       runner.removeAllListeners();
       setRunningSessionId(null);
+      setTokenLocked(false);
     }
   };
 
   const handleStartStop = async () => {
+    // Auto-create session from input token if none exists
+    if (sessions.length === 0 && token.trim()) {
+      const id = randomUUID();
+      const newSession: SessionState = { id, token: token.trim(), status: 'idle', orbs: null };
+      const next = [newSession];
+      sessionsRef.current = next;
+      setSessions(next);
+      setActiveSessionId(id);
+      setToken('');
+    }
+
     if (!activeSessionId) return;
-    const current = sessions.find((s) => s.id === activeSessionId);
+    const current = (sessionsRef.current || sessions).find((s) => s.id === activeSessionId);
     if (!current) return;
+
+    // always sync input token into current session if provided
+    const nextToken = token.trim().length > 0 ? token.trim() : current.token;
+    if (nextToken !== current.token) {
+      current.token = nextToken;
+      setSessions((prev) => prev.map((s) => (s.id === current.id ? { ...s, token: nextToken } : s)));
+      sessionsRef.current = sessionsRef.current.map((s) => (s.id === current.id ? { ...s, token: nextToken } : s));
+    }
 
     if (runningSessionId === activeSessionId) {
       stopRef.current = true;
+      setSessions((prev) => prev.map((x) => (x.id === activeSessionId ? { ...x, status: 'idle' } : x)));
+      setQuestsBySession((prev) => {
+        const list = prev[activeSessionId] || [];
+        return {
+          ...prev,
+          [activeSessionId]: list.map((q) => ({ ...q, status: 'pending' as QuestStatus })),
+        };
+      });
+      setRunningSessionId(null);
+      setTokenLocked(false);
       return;
     }
 
@@ -211,6 +256,7 @@ export default function App() {
     setLoading(true);
     try {
       await SecureStore.setItemAsync('discord_token', current.token);
+      setTokenLocked(true);
       await runSession(current);
     } catch (err: any) {
       Alert.alert('Lỗi', err?.message || 'Không thể chạy quest');
@@ -256,11 +302,11 @@ export default function App() {
           <Text style={styles.subtitle}>Make by ducknovis · official source by hieudz</Text>
         </View>
 
-        <View style={styles.card}>
+        <Card>
           <Text style={styles.label}>Discord User Token</Text>
-         <TextInput
+          <TextInput
             value={token}
-            onChangeText={setToken}
+            onChangeText={(v) => !tokenLocked && setToken(v)}
             placeholder="dMh8...your token"
             style={styles.input}
             autoCapitalize="none"
@@ -268,7 +314,7 @@ export default function App() {
             placeholderTextColor="#5f6b86"
           />
           <View style={styles.buttonRow}>
-            <Pressable style={[styles.blackButton]} onPress={addSession} disabled={loading && !token}>
+            <Pressable style={[styles.blackButton]} onPress={addSession} disabled={loading && !tokenLocked && !token}>
               <Text style={styles.blackButtonText}>Thêm session</Text>
             </Pressable>
             <Pressable
@@ -285,32 +331,36 @@ export default function App() {
               </Text>
             </Pressable>
           </View>
-        </View>
+        </Card>
 
         <View style={styles.row}>
-          <View style={[styles.card, styles.flex1]}>
+          <Card style={styles.flex1}>
             <Text style={styles.label}>Sessions</Text>
             {sessions.length === 0 && <Text style={styles.muted}>Chưa có session</Text>}
             {sessions.map((s) => (
               <Pressable
                 key={s.id}
                 style={[styles.sessionRow, activeSessionId === s.id && styles.sessionActive]}
-                onPress={() => setActiveSessionId(s.id)}
+                onPress={() => {
+                  setActiveSessionId(s.id);
+                  setTokenLocked(false);
+                  setToken(s.token);
+                }}
               >
                 <Text style={styles.questName}>ID {s.id.slice(0, 6)}</Text>
                 <Text style={styles.questSub}>Status: {s.status}</Text>
                 <Text style={styles.questSub}>Orbs: {s.orbs ?? '...'}</Text>
               </Pressable>
             ))}
-          </View>
+          </Card>
 
-          <View style={[styles.card, styles.flex1]}>
+          <Card style={styles.flex1}>
             <Text style={styles.label}>Orbs</Text>
             <Text style={styles.orbText}>{orbs ?? '...'}</Text>
-          </View>
+          </Card>
         </View>
 
-        <View style={styles.card}>
+        <Card>
           <Text style={styles.label}>Quests</Text>
           <FlatList
             data={activeSessionId ? questsBySession[activeSessionId] || [] : []}
@@ -329,9 +379,9 @@ export default function App() {
             )}
             ListEmptyComponent={<Text style={styles.muted}>Chưa có quest nào</Text>}
           />
-        </View>
+        </Card>
 
-        <View style={[styles.card, styles.logsCard]}>
+        <Card style={styles.logsCard}>
           <Text style={styles.label}>Logs</Text>
           <ScrollView>
             {(activeSessionId ? logsBySession[activeSessionId] || [] : []).map((l, i) => (
@@ -340,11 +390,15 @@ export default function App() {
               </Text>
             ))}
           </ScrollView>
-        </View>
+        </Card>
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+const Card = ({ children, style }: { children: React.ReactNode; style?: any }) => (
+  <View style={[styles.card, style]}>{children}</View>
+);
 
 const styles = StyleSheet.create({
   container: {
@@ -355,6 +409,7 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: 18,
     paddingBottom: 32,
+    paddingTop: 48,
     gap: 14,
   },
   hero: {
@@ -367,20 +422,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   subtitle: {
-    color: '#cbd5e1',
+    color: '#e0e7ff',
     fontSize: 13,
-  },
-  card: {
-    backgroundColor: '#0a0a0a',
-    borderRadius: 14,
-    padding: 14,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#141414',
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 4,
   },
   label: {
     color: '#e5e7eb',
@@ -396,6 +439,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     color: '#e5e7eb',
     fontSize: 14,
+    marginTop: 8,
+    marginBottom: 8,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -439,17 +484,15 @@ const styles = StyleSheet.create({
   },
   sessionRow: {
     paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    marginTop: 8,
   },
   sessionActive: {
-    backgroundColor: '#111111',
-    borderRadius: 8,
-  },
-  warnCard: {
-    borderColor: '#f97316',
-    backgroundColor: '#1f1308',
-    gap: 8,
+    backgroundColor: '#161b22',
+    borderColor: '#22304a',
   },
   warnTitle: { color: '#fbbf24', fontWeight: '700', fontSize: 16 },
   warnText: { color: '#f59e0b', fontSize: 13, lineHeight: 18 },
